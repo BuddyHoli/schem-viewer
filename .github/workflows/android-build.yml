@@ -33,6 +33,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Install OS packages (unzip, zip, git, python)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y unzip zip git python3-pip python3-distutils
+
       - name: Install Android SDK tools (cmdline tools + platform-tools)
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
@@ -45,17 +50,14 @@ jobs:
           curl -sSfL https://dl.google.com/android/repository/commandlinetools-linux-8512546_latest.zip -o cmdline-tools.zip
           unzip -q cmdline-tools.zip -d cmdline-tools-temp
           mkdir -p cmdline-tools/latest
-          # Move extracted files into "latest" layout expected by sdkmanager
           mv cmdline-tools-temp/cmdline-tools/* cmdline-tools/latest/
           rm -rf cmdline-tools.zip cmdline-tools-temp
           CMDLINE="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
-          # Make sure sdkmanager is executable
           chmod +x "$CMDLINE"/sdkmanager || true
-          # Accept licenses non-interactively (may print warnings)
+          # Accept licenses non-interactively
           yes | "$CMDLINE"/sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses || true
           # Install required packages for building (platform-tools, platform, build-tools)
           "$CMDLINE"/sdkmanager --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "platforms;android-31" "build-tools;31.0.0"
-          # Verify installation
           echo "Installed SDK packages:"
           "$CMDLINE"/sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --list
 
@@ -81,34 +83,85 @@ jobs:
       - name: Build web (Vite)
         run: npm run build
 
-      - name: Install Capacitor CLI (if not present) and add/sync android
+      - name: Prepare Capacitor & android platform (CI attempt)
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
-          # ensure npx can find sdk tools if needed
           PATH: ${{ github.workspace }}/android-sdk/cmdline-tools/latest/bin:${{ github.workspace }}/android-sdk/platform-tools:${{ env.PATH }}
+          # Ensure npm uses a real shell for running lifecycle scripts
+          npm_config_script_shell: /bin/bash
         run: |
           set -e
-          echo "Install Capacitor CLI locally"
+          echo "Installing Capacitor CLI locally"
           npm install --no-save @capacitor/cli @capacitor/core
-          # If the android platform folder doesn't exist, add it.
+
+          # Show environment diagnostics
+          echo "workspace: $PWD"
+          echo "node: $(node -v)"
+          echo "npm: $(npm -v)"
+          echo "which sh: $(which sh || true)"
+          echo "which bash: $(which bash || true)"
+          echo "sdkmanager: $(ls -1 ${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin || true)"
+
+          # If android folder not present try to add it (attempt). Some CI environments fail; we retry with diagnostics.
           if [ ! -d android ]; then
-            echo "android/ not found -> adding android platform with Capacitor"
-            npx cap add android
+            echo "android/ not found -> attempting npx cap add android (with retries)"
+            set +e
+            attempt=1
+            max=3
+            while [ $attempt -le $max ]; do
+              echo "cap add attempt #$attempt"
+              npx --yes cap add android
+              rc=$?
+              if [ $rc -eq 0 ]; then
+                echo "npx cap add android succeeded on attempt #$attempt"
+                set -e
+                break
+              fi
+              echo "npx cap add android failed (rc=$rc). Gathering diagnostics..."
+              echo "ls -la"
+              ls -la || true
+              echo "pwd: $PWD"
+              echo "node_modules/.bin:"
+              ls -la node_modules/.bin || true
+              attempt=$((attempt+1))
+              sleep 2
+            done
+            if [ $rc -ne 0 ]; then
+              echo "WARNING: 'npx cap add android' failed in CI. Will continue but require android/ to exist in repo for successful build."
+              # Do not fail here to allow the workflow to continue to the helpful pre-check later.
+            fi
+            set -e
           else
             echo "android/ exists -> skipping cap add"
           fi
-          # Always sync & copy web assets to native project
-          npx cap sync android
-          npx cap copy android
+
+          echo "Now running npx cap sync android and npx cap copy android (if android exists)"
+          if [ -d android ]; then
+            npx --yes cap sync android
+            npx --yes cap copy android
+          else
+            echo "android/ still missing; subsequent step will fail with helpful message. Consider adding android/ locally and committing it."
+          fi
+
+      - name: Ensure android platform exists (fail early with helpful message)
+        run: |
+          if [ ! -d android ]; then
+            echo "ERROR: android/ platform not found in repo or could not be added in CI."
+            echo "If you have no local machine, try one of the two options:"
+            echo "1) Use GitHub Codespaces to run 'npx cap add android' and commit android/."
+            echo "2) If you prefer CI-only, reply here and I will attempt a more aggressive CI flow (less reliable)."
+            exit 1
+          else
+            echo "android/ found - continuing"
+          fi
 
       - name: Build Android (Gradle assembleRelease)
         working-directory: android
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
-          # ensure gradle can find sdk tools
           PATH: ${{ github.workspace }}/android-sdk/platform-tools:${{ github.workspace }}/android-sdk/cmdline-tools/latest/bin:${{ env.PATH }}
         run: |
-          chmod +x ./gradlew
+          chmod +x ./gradlew || true
           ./gradlew assembleRelease --no-daemon
 
       - name: Decode keystore (optional)
@@ -130,9 +183,7 @@ jobs:
           APK_ALIGNED=app/build/outputs/apk/release/app-release-aligned.apk
           APK_SIGNED=app/build/outputs/apk/release/app-release.apk
           echo "Unsigned apk exists: $APK_UNSIGNED"
-          # Sign using jarsigner (provided by setup-java)
           jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASS" "$APK_UNSIGNED" "$KEY_ALIAS"
-          # Try to find zipalign in SDK build-tools
           ZIPALIGN=$(find "${{ github.workspace }}/android-sdk" -type f -name zipalign | head -n 1 || true)
           if [ -n "$ZIPALIGN" ]; then
             cp "$APK_UNSIGNED" "$APK_ALIGNED"
