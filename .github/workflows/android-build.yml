@@ -33,10 +33,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install OS packages (unzip, zip, git, python)
+      - name: Install OS packages (unzip, zip, git, python3-pip, curl)
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y unzip zip git python3-pip python3-distutils
+          sudo apt-get install -y unzip zip git python3-pip curl
 
       - name: Install Android SDK tools (cmdline tools + platform-tools)
         env:
