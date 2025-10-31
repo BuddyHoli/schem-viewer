@@ -67,8 +67,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Install npm dependencies (use lockfile if present)
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "package-lock.json found -> running npm ci"
+            npm ci
+          else
+            echo "No package-lock.json found -> running npm install and generating lockfile"
+            npm install
+            ls -lh package-lock.json || true
+          fi
 
       - name: Build web (Vite)
         run: npm run build
@@ -83,6 +91,8 @@ jobs:
         working-directory: android
         env:
           ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+          # ensure gradle can find sdk tools
+          PATH: ${{ github.workspace }}/android-sdk/platform-tools:${{ github.workspace }}/android-sdk/cmdline-tools/latest/bin:${{ env.PATH }}
         run: |
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon
@@ -108,7 +118,7 @@ jobs:
           echo "Unsigned apk exists: $APK_UNSIGNED"
           # Sign using jarsigner (provided by setup-java)
           jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASS" "$APK_UNSIGNED" "$KEY_ALIAS"
-          # Try to find zipalign in system (sdk build-tools)
+          # Try to find zipalign in SDK build-tools
           ZIPALIGN=$(find "${{ github.workspace }}/android-sdk" -type f -name zipalign | head -n 1 || true)
           if [ -n "$ZIPALIGN" ]; then
             cp "$APK_UNSIGNED" "$APK_ALIGNED"
