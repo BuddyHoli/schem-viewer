@@ -33,14 +33,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK tools
-        # Install necessary Android SDK components (build-tools, platform-tools)
+      - name: Install Android SDK tools (setup only)
+        # reactivecircus/android-emulator-runner requires a `script` input.
+        # We provide a no-op script so the action completes and necessary SDK components are available.
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 31
           target: default
           arch: x86_64
-          force-avd-creation: false
+          script: |
+            echo "SDK tools installed (no emulator run required)"
 
       - name: Cache node_modules
         uses: actions/cache@v4
