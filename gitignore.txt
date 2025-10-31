@@ -1,0 +1,8 @@
+node_modules/
+dist/
+android/
+.vscode/
+.DS_Store
+.env
+.idea/
+*.log

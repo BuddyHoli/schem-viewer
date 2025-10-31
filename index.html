@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Schematic & Voxel Viewer</title>
+    <link rel="stylesheet" href="/src/ui.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>Schematic & Voxel Viewer</h1>
+      </header>
+
+      <section class="controls">
+        <label>Datei (.schem oder .obj):
+          <input id="fileInput" type="file" accept=".schem,.nbt,.obj" />
+        </label>
+
+        <label>Layer (Y):
+          <input id="layerRange" type="range" min="0" max="0" value="0" />
+          <span id="layerLabel">0</span>
+        </label>
+
+        <button id="exportLayerBtn">Export Layer PNG</button>
+        <label><input id="toggleAir" type="checkbox" checked /> Luft anzeigen</label>
+      </section>
+
+      <main class="content">
+        <div id="viewer" class="viewer"></div>
+        <div class="layer-panel">
+          <canvas id="layerCanvas" width="512" height="512"></canvas>
+        </div>
+      </main>
+
+      <footer>
+        <small>Prototyp — unterstützt .schem (gängigste Varianten) und .obj (voxel-like)</small>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
