@@ -33,16 +33,31 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK tools (setup only)
-        # reactivecircus/android-emulator-runner requires a `script` input.
-        # We provide a no-op script so the action completes and necessary SDK components are available.
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 31
-          target: default
-          arch: x86_64
-          script: |
-            echo "SDK tools installed (no emulator run required)"
+      - name: Install Android SDK tools (cmdline tools + platform-tools)
+        env:
+          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+        run: |
+          set -e
+          echo "Installing Android commandline tools to $ANDROID_SDK_ROOT"
+          mkdir -p "$ANDROID_SDK_ROOT"
+          cd "$ANDROID_SDK_ROOT"
+          # Download command line tools (Linux). Replace URL if Google updates package name.
+          curl -sSfL https://dl.google.com/android/repository/commandlinetools-linux-8512546_latest.zip -o cmdline-tools.zip
+          unzip -q cmdline-tools.zip -d cmdline-tools-temp
+          mkdir -p cmdline-tools/latest
+          # Move extracted files into "latest" layout expected by sdkmanager
+          mv cmdline-tools-temp/cmdline-tools/* cmdline-tools/latest/
+          rm -rf cmdline-tools.zip cmdline-tools-temp
+          CMDLINE="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
+          # Make sure sdkmanager is executable
+          chmod +x "$CMDLINE"/sdkmanager || true
+          # Accept licenses non-interactively (may print warnings)
+          yes | "$CMDLINE"/sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses || true
+          # Install required packages for building (platform-tools, platform, build-tools)
+          "$CMDLINE"/sdkmanager --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "platforms;android-31" "build-tools;31.0.0"
+          # Verify installation
+          echo "Installed SDK packages:"
+          "$CMDLINE"/sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --list
 
       - name: Cache node_modules
         uses: actions/cache@v4
@@ -66,6 +81,8 @@ jobs:
 
       - name: Build Android (Gradle assembleRelease)
         working-directory: android
+        env:
+          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
         run: |
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon
@@ -89,8 +106,10 @@ jobs:
           APK_ALIGNED=app/build/outputs/apk/release/app-release-aligned.apk
           APK_SIGNED=app/build/outputs/apk/release/app-release.apk
           echo "Unsigned apk exists: $APK_UNSIGNED"
+          # Sign using jarsigner (provided by setup-java)
           jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASS" "$APK_UNSIGNED" "$KEY_ALIAS"
-          ZIPALIGN=$(find / -type f -name zipalign 2>/dev/null | head -n 1 || true)
+          # Try to find zipalign in system (sdk build-tools)
+          ZIPALIGN=$(find "${{ github.workspace }}/android-sdk" -type f -name zipalign | head -n 1 || true)
           if [ -n "$ZIPALIGN" ]; then
             cp "$APK_UNSIGNED" "$APK_ALIGNED"
             "$ZIPALIGN" -v -p 4 "$APK_ALIGNED" "$APK_SIGNED"
