@@ -81,9 +81,23 @@ jobs:
       - name: Build web (Vite)
         run: npm run build
 
-      - name: Install Capacitor CLI (if not present) and sync
+      - name: Install Capacitor CLI (if not present) and add/sync android
+        env:
+          ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+          # ensure npx can find sdk tools if needed
+          PATH: ${{ github.workspace }}/android-sdk/cmdline-tools/latest/bin:${{ github.workspace }}/android-sdk/platform-tools:${{ env.PATH }}
         run: |
+          set -e
+          echo "Install Capacitor CLI locally"
           npm install --no-save @capacitor/cli @capacitor/core
+          # If the android platform folder doesn't exist, add it.
+          if [ ! -d android ]; then
+            echo "android/ not found -> adding android platform with Capacitor"
+            npx cap add android
+          else
+            echo "android/ exists -> skipping cap add"
+          fi
+          # Always sync & copy web assets to native project
           npx cap sync android
           npx cap copy android
 
